@@ -1,6 +1,6 @@
 body {
-  background: url("./BG_S.jpg");
-  background-size: contain;
+  background: url("./BG.png");
+  background-size: 100% 100vh;
   overflow: hidden;
   height: 100vh;
   margin: 0;

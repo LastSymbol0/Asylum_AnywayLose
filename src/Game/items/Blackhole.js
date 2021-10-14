@@ -9,7 +9,6 @@ export function runBlackhole (Blackhole, onPlayerCollision) {
         if (left <= -100) {
             var root = document.getElementById('root')
             root.removeChild(Blackhole);
-            // delete Blackhole;
         }
 
         var playerShip = document.getElementById("playerShip");
@@ -23,8 +22,6 @@ export function runBlackhole (Blackhole, onPlayerCollision) {
 
                 var root = document.getElementById('root')
                 root.removeChild(Blackhole);
-
-                // delete Blackhole;
             };
         };
     }, 20)
@@ -34,11 +31,11 @@ export const createBlackhole = (onPlayerCollision) => {
     var root = document.getElementById('root')
     var Blackhole = document.createElement("img");
     Blackhole.style.position = 'absolute';
-    Blackhole.style.id = 'Blackhole';
+    Blackhole.style.class = 'blackhole';
     Blackhole.style.width = '100px';
     Blackhole.style.marginLeft = '100%';
     Blackhole.style.marginTop = getRandomInt(0, 500) + 'px';
-    Blackhole.src='./pic/blackhole.svg';
+    Blackhole.src=process.env.PUBLIC_URL + '/pic/blackhole.svg';
     root.appendChild(Blackhole);
     runBlackhole(Blackhole, onPlayerCollision);
     

@@ -1,9 +1,9 @@
 import { enemiesCount } from "./Enemy";
-import {getMarginLeft, getMarginTop, getRandomInt} from './Utils'
+import {getMarginLeft, getMarginTop } from './Utils'
 
 var bulletsCount = '1';
 
-function checkClash (fire, enemy) {
+function checkClash (fire) {
     var enemy1 = document.getElementById("enemy" + (enemiesCount - 1));
     var enemy2 = document.getElementById("enemy" + (enemiesCount - 2));
     var enemy3 = document.getElementById("enemy" + (enemiesCount - 3));
@@ -12,21 +12,18 @@ function checkClash (fire, enemy) {
             (getMarginTop(fire) >= getMarginTop(enemy1) + 30 &&
             getMarginTop(fire) <= getMarginTop(enemy1) + 170)) {
             root.removeChild(enemy1);
-            // delete enemy1;
         return (true);
     };
     if ((getMarginLeft(fire) >= getMarginLeft(enemy2)) &&
             (getMarginTop(fire) >= getMarginTop(enemy2) + 30 &&
             getMarginTop(fire) <= getMarginTop(enemy2) + 170)) {
             root.removeChild(enemy2);
-            // delete enemy2;
         return (true);
     };
     if ((getMarginLeft(fire) >= getMarginLeft(enemy3)) &&
             (getMarginTop(fire) >= getMarginTop(enemy3) + 30 &&
             getMarginTop(fire) <= getMarginTop(enemy3) + 170)) {
             root.removeChild(enemy3);
-            // delete enemy3;
         return (true);
     };
 }

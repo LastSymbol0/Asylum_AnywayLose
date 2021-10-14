@@ -4,47 +4,47 @@ import { createBlackhole } from './items/Blackhole'
 import { createEnemy } from './items/Enemy'
 import { createFood } from './items/Food'
 import { createPlayer, shoot, createBullet } from './items/Player'
-import {getMarginLeft, getMarginTop, getRandomInt} from './items/Utils'
+import {getMarginTop} from './items/Utils'
 import KeyboardEventHandler from 'react-keyboard-event-handler'
 
-import playersIdl from '../asylum-sdk/idl/players.json'
-import asylumIdl from '../asylum-sdk/idl/asylum.json'
-import { players, asylum } from '../asylum-sdk'
+import { asylum, AsylumProgram, PlayersProgram } from 'asylum-sdk'
 
-import { useAnchorWallet } from '@solana/wallet-adapter-react'
-import { Connection, PublicKey } from '@solana/web3.js'
-import { Idl, Program, Provider } from '@project-serum/anchor'
-import { Achievement, AchievementData, AchievementsList } from './AchievementsList'
+import { useAnchorWallet, useWallet } from '@solana/wallet-adapter-react'
+import { Connection, PublicKey, Keypair } from '@solana/web3.js'
+import { Provider, Wallet } from '@project-serum/anchor'
+// import { createShipMasterNFT } from '../Metaplex'
 
-const shipPictures = ["/pic/unit.svg","/pic/unit2.svg","/pic/unit3.svg","/pic/unit4.svg"];
+const shipPictures = [process.env.PUBLIC_URL + "/pic/unit.svg",process.env.PUBLIC_URL + "/pic/unit2.svg",process.env.PUBLIC_URL + "/pic/unit3.svg",process.env.PUBLIC_URL + "/pic/unit4.svg"];
 
-const playersProgramID = new PublicKey(playersIdl.metadata.address)
-const asylumProgramID = new PublicKey(asylumIdl.metadata.address)
 const gameId = new PublicKey("11111111111111111111111111111112")
 
 const killEnemyScoreBonus = 50;
 
 export const Game = () => {
-    
     var [score, setScore] = useState(0);
     var [level, setLevel] = useState(1);
     var [lives, setLives] = useState(5);
     var [pxToMove, setPxToMove] = useState(21);
     var [bullet, setBullet] = useState("~~>");
+    
+    var [spawners, setSpawners] = useState([] as NodeJS.Timer[]);
 
     const [nickname, setNickname] = useState('')
     const [playerAchievements, setPlayerAchievements] = useState([] as number[])
-    const [achievements, setAchievements] = useState([] as AchievementData[])
+    const [achievements, setAchievements] = useState([] as asylum.AchievementData[])
     const [isPlayerDataFetched, setIsPlayerDataFetched] = useState(false)
     const [isGlobalDataFetched, setIsGlobalDataFetched] = useState(false)
+    const [isGameEnded, setIsGameEnded] = useState(false)
+    const [endGameActionsQueue, setEndGameActionsQueue] = useState([] as {(): Promise<void>}[])
 
     const wallet = useAnchorWallet()
+    const __wallet = useWallet()
 
     async function getProvider() {
         if (!wallet)
             return;
 
-        const network = "http://127.0.0.1:8899";
+        const network = "http://localhost:8899";
         const connection = new Connection(network, "processed")
         
         const provider = new Provider(
@@ -54,16 +54,14 @@ export const Game = () => {
     }
 
     async function fetchPlayerData() {
-        console.log("fetch; wallet:", wallet)
         if (!wallet)
             return;
 
         const provider = await getProvider()
-        const program = new Program(playersIdl as Idl, playersProgramID, provider)
+        const program = new PlayersProgram(provider as Provider)
     
         try {
-          const [playerAccountAddress, _] = await players.findPlayerGlobalAccountAddress(wallet.publicKey, playersProgramID)
-          const account = await program.account.playerAccount.fetch(playerAccountAddress)
+          const account = await program.fetchPlayerGlobalAccountData(wallet.publicKey)
     
           console.log(account)
           setNickname(account.nickname.toString())
@@ -76,17 +74,10 @@ export const Game = () => {
 
     async function fetchGlobalData() {
         const provider = await getProvider()
-        const program = new Program(asylumIdl as Idl, asylumProgramID, provider)
-    
+        const program = new AsylumProgram(provider as Provider)
+        
         try {
-            const [achievementsAccountAddress, _] = await asylum.findAchievementsAccountAddress(asylumProgramID)
-            const account = await program.account.achievementsAccount.fetch(achievementsAccountAddress)
-            
-            console.log(account)
-
-            const gameAchievements = account.achievements
-              .filter((x: asylum.AchievementData) => x.game.toString() === gameId.toString())
-              .map((x: asylum.AchievementData) => { return {type: x.label, id: x.id, label: x.label, description: x.description}});
+            const gameAchievements = await program.fetchAcievementsData(gameId);
             
             console.log("gameAchievements", gameAchievements)
             setAchievements(gameAchievements)
@@ -103,20 +94,20 @@ export const Game = () => {
             fetchPlayerData();
     }, [isPlayerDataFetched, isGlobalDataFetched])
 
-    async function addAchievement(achievement: Achievement) {
+    async function addAchievement(achievement: string) {
         const provider = await getProvider()
-        const program = new Program(playersIdl as Idl, playersProgramID, provider)
+        const program = new PlayersProgram(provider as Provider)
     
         try {
-            const achievementId = achievements.find(x => x.type === achievement)?.id;
+            const achievementId = achievements.find(x => x.label === achievement)?.id;
 
             if (achievementId)
             {
                 // if player does not already has the achievement
                 if (playerAchievements.indexOf(achievementId) === -1)
                 {
-                    await players.addAchievement(program, achievementId, 0)
-                    setIsPlayerDataFetched(false);
+                    setEndGameActionsQueue((current: {(): Promise<void>}[]) => [...current, () => program.addAchievement(achievementId, 0)])
+                    // await program.addAchievement(achievementId, 0)
                 }
             }
             else
@@ -127,30 +118,27 @@ export const Game = () => {
     }
 
     const onEnemyBorderCollision = () => {
+        if (isGameEnded)
+            return
         setLives(lives => lives - 1);
 
-        // TODO: rewrite
-        if (lives <= 0) {
-            alert("Looooooser!");
-            location.reload();
-        };
     }
 
     const onBulletEnemyCollision = () => {
+        if (isGameEnded)
+            return
         addAchievement('First kill')
         setScore(score => score + killEnemyScoreBonus);
     }
     
     const onPlayerBlackholeCollision = () => {
+        if (isGameEnded)
+            return
         setLives(lives =>
             {
                 const newLives = lives - 5;
-                if (lives <= 0) {
+                if (lives > 0) {
                     addAchievement('Interstellar')
-
-                    alert("Oh, f*cking black hole. You lose. Try again.");
-                    alert("BTW, if you wanna know what`s happens when you fall in black hole, you can follow the link 'https://teletype.in/@nakedspace/HJrT6uhs7'");
-                    location.reload();
                 }
                 return newLives;
             });
@@ -166,20 +154,48 @@ export const Game = () => {
         {
             var inter = setInterval(function () {
                 header.style.marginTop = getMarginTop(header) - 1 + 'px';
-                if (getMarginTop(header) <= -230) {
+                if (getMarginTop(header) <= -235) {
                     clearInterval(inter);
                 };
             }, 20)
         }
-        setInterval(function () {
+        const enemySpawner = setInterval(function () {
             createEnemy(onEnemyBorderCollision)
         }, 2000)
-        setInterval(function () {
+        const bhSpawner = setInterval(function () {
             createBlackhole(onPlayerBlackholeCollision)
         }, 8000)
-        setInterval(function () {
+        const foodSpawner = setInterval(function () {
             createFood(onPlayerFoodCollision);
         }, 11000)
+
+        setSpawners([enemySpawner, bhSpawner, foodSpawner])
+    }
+
+    const endGame = () => {
+        if (!isGameEnded)
+            return
+
+        // stop spawn
+        spawners.forEach(spawner => clearInterval(spawner));
+
+        // remove existing
+        var gameObjects = [
+            ...document.getElementsByClassName("blackhole"),
+            ...document.getElementsByClassName("enemy"),
+            ...document.getElementsByClassName("food")
+        ]
+        var root = document.getElementById('root') as HTMLElement
+        gameObjects.forEach(x => root.removeChild(x));
+
+        // execute actions
+        endGameActionsQueue.forEach(x => x())
+
+        // message
+        alert("One more time, loser?");
+        alert("Press ok to restart the game.");
+
+        location.reload()
     }
 
     const onClickStart = () => {
@@ -192,7 +208,7 @@ export const Game = () => {
     }
 
     const onClickHiddenButton = () => {
-        alert("Nu zdravstvuy stalker. You are still loser.");
+        alert("Hey stalker. You are still loser.");
         location.reload();
     }
 
@@ -232,11 +248,13 @@ export const Game = () => {
         }
     }
 
+    useEffect(() => {
+        if (lives <= 0 && !isGameEnded) {
+            setIsGameEnded(true);
+        }
+    }, [lives]);
 
-    if (lives <= 0) {
-        alert("One more time, loser?");
-        location.reload();
-    }
+    useEffect(endGame, [isGameEnded])
 
     useEffect(() => {
         const newLevel = Math.floor(score / 600)
@@ -274,7 +292,7 @@ export const Game = () => {
 
     return (
     <div>
-        <div  style={{borderBottom: "solid #ffff00"}}>
+        <div  style={{borderBottom: "solid #ffff00", minHeight: '230px'}}>
             <h1 id="header" style={{color: "#018f83", textAlign: "center"}}>Hey, {nickname}</h1>
             <h1 id="header" style={{color: "#018f83", textAlign: "center"}}>Wanna proof that you're not a loser?)</h1>
 
@@ -293,20 +311,21 @@ export const Game = () => {
                       </ul>
                       : <p>No achievements so far</p>}
                 </div>
-                <img id="start" onClick={onClickStart} src="/pic/strart.png" alt="start button" style={{width: "100px", marginLeft: "47%"}}/>
+                <img id="start" onClick={onClickStart} src={process.env.PUBLIC_URL + "/pic/strart.png"} alt="start button" style={{width: "100px", marginLeft: "47%"}}/>
                 &emsp;&emsp;&emsp;&emsp;
-                <img id="boost" onClick={onClickBoost} src="/pic/running.png" alt="boost" style={{width: "80px", position: "absolute"}}/>
+                <img id="boost" onClick={onClickBoost} src={process.env.PUBLIC_URL + "/pic/running.png"} alt="boost" style={{width: "80px", position: "absolute"}}/>
                 <span id="speed" style={{color: "orange"}}>Current speed: {pxToMove}px</span>
+                <button onClick={onClickStart}>Test me</button>
             </div>
         </div>
 
         <div style={{alignContent: 'space-between'}}>
-            <h2 id="lives" style={{display: "inline", color: "red"}}>Lives: {'• '.repeat(lives)}</h2>
+            <h2 id="lives" style={{display: "inline", color: "red"}}>Lives: {'• '.repeat(lives >= 0 ? lives : 0)}</h2>
             &emsp;&emsp;&emsp;&emsp;
             <h2 id="score" style={{display: "inline", color: "orange"}}>Score: {score}&ensp;&ensp;</h2>
             <h2 id="level" style={{display: "inline", color: "orange"}}>Level: {level}</h2>
 
-            <img onClick={onClickHiddenButton} id="HiddenButtonForWin" alt="" src="/pic/HiddenButtonForWinImg.png"/>
+            <img onClick={onClickHiddenButton} id="HiddenButtonForWin" alt="" src={process.env.PUBLIC_URL + "/pic/HiddenButtonForWinImg.png"}/>
         </div>
 
         <KeyboardEventHandler handleKeys={["right", "left", "up", "down", "space"]} handleEventType="keydown" onKeyEvent={actionHandler}></KeyboardEventHandler>
